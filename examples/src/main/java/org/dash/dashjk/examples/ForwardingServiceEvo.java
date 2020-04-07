@@ -108,11 +108,11 @@ public class ForwardingServiceEvo {
         } else if (args.length > 1 && args[1].equals("mobile")) {
             params = MobileDevNetParams.get();
             filePrefix = "forwarding-service-mobile";
-            platform = new Platform(true);
+            platform = new Platform(params);
         } else if (args.length > 1 && args[1].equals("evonet")) {
             params = EvoNetParams.get();
             filePrefix = "forwarding-service-evonet";
-            platform = new Platform(false);
+            platform = new Platform(params);
         } else if( args.length > 6 && args[1].equals("devnet")) {
             String [] dnsSeeds = new String[args.length - 5];
             System.arraycopy(args, 5, dnsSeeds, 0, args.length - 5);
@@ -242,7 +242,7 @@ public class ForwardingServiceEvo {
             if(identity != null) {
                 System.out.println("  id json: " + identity.toJSON().toString());
                 try {
-                    DocumentQuery options = new DocumentQuery(Arrays.asList(Arrays.asList("$userId", "==", identityId)), null, 5, 0, 0);
+                    DocumentQuery options = new DocumentQuery.Builder().where(Arrays.asList("$userId", "==", identityId)).build();
                     List<Document> documents = platform.getDocuments().get("domain", options);
                     if (documents != null & documents.size() > 0) {
                         System.out.println("  name: " + documents.get(0).getData().get("normalizedName"));
@@ -256,13 +256,15 @@ public class ForwardingServiceEvo {
         }
 
         System.out.println("------------------------------------\nNames found starting with hashengineering");
-        DocumentQuery options = new DocumentQuery(Arrays.asList(
-                Arrays.asList("normalizedLabel", "startsWith", "hashengineering"),
-                Arrays.asList("normalizedParentDomainName", "==", "dash")), null, 100, 0, 0);
+        DocumentQuery options = new DocumentQuery.Builder()
+                .where(Arrays.asList("normalizedLabel", "startsWith", "hashengineering"))
+                .where(Arrays.asList("normalizedParentDomainName", "==", "dash"))
+                .build();
         try {
             List<Document> documents = platform.getDocuments().get("dpns.domain", options);
             for(Document document : documents) {
                 System.out.println(document.getData().get("$userId") + "->  name: " + document.getData().get("normalizedLabel"));
+                platform.getNames().get((String)document.getData().get("normalizedLabel"));
             }
             System.out.println(documents.size() + " names found");
         } catch(Exception e) {
@@ -388,7 +390,7 @@ public class ForwardingServiceEvo {
 
             String name = "hashengineering-"+ new Random().nextInt();
             System.out.println("Registering name:" + name + " for identity: " + identity.getId());
-            platform.getNames().register(name, identity,
+            platform.getNames().register2(name, identity,
                     kit.wallet().getBlockchainIdentityFundingKeyChain().currentAuthenticationKey());
 
 

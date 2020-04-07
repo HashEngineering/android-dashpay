@@ -1,5 +1,6 @@
 package org.dash.dashjk.platform
 
+import org.bitcoinj.core.NetworkParameters
 import org.bitcoinj.params.EvoNetParams
 import org.bitcoinj.params.MobileDevNetParams
 import org.dashevo.dapiclient.DapiClient
@@ -10,7 +11,7 @@ import org.dashevo.dpp.contract.Contract
 import org.dashevo.dpp.document.Document
 import org.dashevo.dpp.identity.Identity
 
-class Platform(val isMobile: Boolean = false) {
+class Platform(val params: NetworkParameters) {
 
     var dataProvider: DataProvider = object : DataProvider {
         override fun fetchDataContract(s: String): Contract? {
@@ -39,13 +40,15 @@ class Platform(val isMobile: Boolean = false) {
     lateinit var client: DapiClient
 
     init {
-        if(!isMobile) {
+        if(params.id.contains("evonet")) {
             apps["dpns"] = ContractInfo("77w8Xqn25HwJhjodrHW133aXhjuTsTv9ozQaYpSHACE3")
-        } else {
-            apps["dpns"] = ContractInfo("7hjHdNMWNvj3QMiDWuehzBPzMbxCVrWPazukrT2uNGVB")
-            apps["dashpay"] = ContractInfo("42isZhFyhPzVFfJPZbNqAotFHb1iBajbaQAMPyVdvY6F")
+            client = DapiClient(EvoNetParams.MASTERNODES[1], true)
+        } else if(params.id.contains("mobile")){
+            apps["dpns"] = ContractInfo("ForwNrvKy8jdyoCNTYBK4gcV6o15n79DmFQio2gGac5p")
+            apps["dashpay"] = ContractInfo("FW2BGfVdTLgGWGkJRjC838MPpEcL2cSfkNkwao8ooxm5")
+            client = DapiClient(MobileDevNetParams.MASTERNODES[1], true)
+
         }
-        client = DapiClient(if(isMobile) MobileDevNetParams.MASTERNODES[1] else EvoNetParams.MASTERNODES[1], true)
     }
 
 }

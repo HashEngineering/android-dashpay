@@ -104,15 +104,177 @@ class NamesHandler (val platform: Platform) {
         return domainDocument;
 
     }
+    fun register2(name: String, identity: Identity, identityHDPrivateKey: ECKey): Document? {
+        val entropy = Entropy.generate()
+        val document = preorder(name, identity, identityHDPrivateKey, entropy)
+        return if (document != null) {
+            registerName(name, identity, identityHDPrivateKey, entropy, document)
+        } else null
+    }
+
+    fun preorder(name: String, identity: Identity, identityHDPrivateKey: ECKey, preorderSaltBase58: String): Document? {
+
+        val identityType = if (identity.type.value == 2) "application" else "user"
+
+        val (normalizedParentDomainName, normalizedLabel) = normalizedNames(name)
+        val fullDomainName = "$normalizedLabel.$normalizedParentDomainName"
+
+        val nameHash = Sha256Hash.twiceOf(fullDomainName.toByteArray())
+        val nameHashHex = nameHash.toString()
+
+        val preOrderSaltRaw = Base58.decode(preorderSaltBase58)
+
+        val saltedDomainHash = getSaltedDomainHash(preOrderSaltRaw, nameHash)
+
+        if (platform.apps["dpns"] == null) {
+            throw Error("DPNS is required to register a new name.")
+        }
+        // 1. Create preorder document
+
+        val preorderDocument = createPreorderDocument(saltedDomainHash, identity)
+
+        val preorderTransition = platform.dpp.document.createStateTransition(listOf(preorderDocument))
+        preorderTransition.sign(identity.getPublicKeyById(1)!!, identityHDPrivateKey.privateKeyAsHex);
+
+        return try {
+            platform.client.applyStateTransition(preorderTransition)
+            preorderDocument
+        } catch (x: Exception) {
+            null
+        }
+    }
+
+    fun createPreorderDocument(
+        saltedDomainHash: Sha256Hash,
+        identity: Identity
+    ): Document {
+        val map = JSONObject("{saltedDomainHash: \"5620$saltedDomainHash\"}").toMap()
+
+        val preorderDocument = platform.documents.create(
+            "dpns.preorder",
+            identity,
+            map
+        )
+        return preorderDocument
+    }
+
+    fun normalizedNames(name: String): Pair<String, String> {
+        val nameSlice = name.indexOf('.')
+        val normalizedParentDomainName =
+            if (nameSlice == -1) "dash" else name.slice(nameSlice + 1..name.length)
+
+        val label = if (nameSlice == -1) name else name.slice(0..nameSlice)
+
+        val normalizedLabel = label.toLowerCase();
+        return Pair(normalizedParentDomainName, normalizedLabel)
+    }
+
+    private fun getLabel(name: String): String {
+        val nameSlice = name.indexOf('.')
+        return if(nameSlice == -1) name else name.slice(0 .. nameSlice)
+    }
+
+    fun getSaltedDomainHashString(
+        preOrderSaltRaw: ByteArray,
+        nameHash: Sha256Hash
+    ): String {
+        return getSaltedDomainHash(preOrderSaltRaw, nameHash).toString()
+    }
+
+    fun getSaltedDomainHashBytes(
+        preOrderSaltRaw: ByteArray,
+        nameHash: Sha256Hash
+    ): ByteArray {
+        return getSaltedDomainHash(preOrderSaltRaw, nameHash).bytes
+    }
+
+    fun getSaltedDomainHashBytes(
+        preOrderSaltRaw: ByteArray,
+        name: String
+    ): ByteArray {
+        return getSaltedDomainHash(preOrderSaltRaw, nameHash(name)).bytes
+    }
+
+    fun getSaltedDomainHash(
+        preOrderSaltRaw: ByteArray,
+        nameHash: Sha256Hash
+    ): Sha256Hash {
+        val baos = ByteArrayOutputStream(preOrderSaltRaw.size + nameHash.bytes.size)
+        baos.write(preOrderSaltRaw)
+        baos.write(0x56)
+        baos.write(0x20)
+        baos.write(nameHash.bytes)
+
+        return Sha256Hash.twiceOf(baos.toByteArray())
+    }
+
+    fun nameHash(name: String): Sha256Hash {
+        val (normalizedParentDomainName, normalizedLabel) = normalizedNames(name)
+        val fullDomainName = "$normalizedLabel.$normalizedParentDomainName"
+        return Sha256Hash.twiceOf(fullDomainName.toByteArray())
+    }
+
+    fun registerName(name: String, identity: Identity, identityHDPrivateKey: ECKey, preorderSaltBase58: String, preorder: Document): Document? {
+        val domainDocument = createDomainDocument(identity, name, preorderSaltBase58)
+
+        println(domainDocument.toJSON())
+
+        // 4. Create and send domain state transition
+        val domainTransition = platform.dpp.document.createStateTransition(listOf(domainDocument));
+        domainTransition.sign(identity.getPublicKeyById(1)!!, identityHDPrivateKey.privateKeyAsHex);
+
+        println(domainTransition.toJSON())
+
+        // @ts-ignore
+        platform.client.applyStateTransition(domainTransition)
+
+        return domainDocument;
+    }
+
+    fun createDomainDocument(
+        identity: Identity,
+        name: String,
+        preorderSaltBase58: String
+    ): Document {
+        val records = HashMap<String, Any?>(1)
+        records["dashIdentity"] = identity.id
+
+        val (normalizedParentDomainName, normalizedLabel) = normalizedNames(name)
+        val fullDomainName = "$normalizedLabel.$normalizedParentDomainName"
+
+        val nameHash = Sha256Hash.twiceOf(fullDomainName.toByteArray())
+        val nameHashHex = nameHash.toString()
+
+        val fields = HashMap<String, Any?>(6);
+        fields["nameHash"] = "5620$nameHashHex"
+        fields["label"] = getLabel(name)
+        fields["normalizedLabel"] = normalizedLabel
+        fields["normalizedParentDomainName"] = normalizedParentDomainName
+        fields["preorderSalt"] = preorderSaltBase58
+        fields["records"] = records
+
+        // 3. Create domain document
+        val domainDocument = platform.documents.create(
+            "dpns.domain",
+            identity,
+            fields
+        )
+        return domainDocument
+    }
 
     fun get(id: String): Document? {
-        val queryOpts = DocumentQuery(
-            listOf(
-                listOf("normalizedLabel", "==", id.toLowerCase()).toMutableList(),
-                listOf("normalizedParentDomainName", "==", "dash").toMutableList()
-            ).toMutableList(),
-            null, 1, 0, 0
-        )
+        val queryOpts = DocumentQuery.Builder()
+            .where(listOf("normalizedLabel", "==", id.toLowerCase()))
+            .where(listOf("normalizedParentDomainName", "==", "dash"))
+            .build()
+
+        /*val where = """[
+            [ "normalizedLabel", "==",  "${id.toLowerCase()}" ],
+            [ "normalizedParentDomainName", "==", "dash" ] 
+        ]""".trimIndent()
+
+        val queryOpts2 = DocumentQuery.Builder().where(where).build()
+*/
         try{
             val documents = platform.documents.get("dpns.domain", queryOpts);
             return if(documents[0] != null && documents.size != 0) documents[0] else null;
