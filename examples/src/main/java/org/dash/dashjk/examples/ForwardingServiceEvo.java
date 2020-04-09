@@ -47,6 +47,7 @@ import org.bitcoinj.wallet.AuthenticationKeyChain;
 import org.bitcoinj.wallet.SendRequest;
 import org.bitcoinj.wallet.Wallet;
 import org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener;
+import org.dash.dashjk.dashpay.BlockchainIdentity;
 import org.dash.dashjk.platform.Platform;
 import org.dashevo.dapiclient.DapiClient;
 import org.dashevo.dapiclient.SingleMasternode;
@@ -82,6 +83,7 @@ public class ForwardingServiceEvo {
     private static Address forwardingAddress;
     private static WalletAppKit kit;
     private static Platform platform;
+    private static BlockchainIdentity blockchainIdentity;
 
     public static void main(String[] args) throws Exception {
         // This line makes the log output more compact and easily read, especially when using the JDK log adapter.
@@ -237,8 +239,6 @@ public class ForwardingServiceEvo {
             String identityId = tx.getCreditBurnIdentityIdentifier().toStringBase58();
             System.out.println("  id: " + identityId);
             Identity identity = platform.getIdentities().get(identityId);
-            if(identity == null)
-                identity = platform.getIdentities().get(BaseEncoding.base64().omitPadding().encode(tx.getCreditBurnIdentityIdentifier().getBytes()));
             if(identity != null) {
                 System.out.println("  id json: " + identity.toJSON().toString());
                 try {
@@ -253,6 +253,8 @@ public class ForwardingServiceEvo {
                     System.out.println("  no names found");
                 }
             }
+            BlockchainIdentity blockchainIdentity = new BlockchainIdentity(Identity.IdentityType.USER, tx, kit.wallet());
+            System.out.println("blockchainIdentity: " + blockchainIdentity.getUniqueIdString());
         }
 
         System.out.println("------------------------------------\nNames found starting with hashengineering");
@@ -360,6 +362,8 @@ public class ForwardingServiceEvo {
                     // The wallet has changed now, it'll get auto saved shortly or when the app shuts down.
                     System.out.println("Blockchain Identity Funding Transaction hash is " + sendResult.tx.getTxId());
                     System.out.println(sendResult.tx.toString());
+                    System.out.println("Blockchain Identity object Initialization" + sendResult.tx.getTxId());
+                    blockchainIdentity = new BlockchainIdentity(Identity.IdentityType.USER, (CreditFundingTransaction)sendRequest.tx, kit.wallet());
                 }
             }, MoreExecutors.directExecutor());
 
