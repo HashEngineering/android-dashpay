@@ -24,7 +24,6 @@ class ContractHandler (val platform: Platform) {
             return localContract.contract;
         } else {
             try {
-                // @ts-ignore
                 val rawContract = platform.client.getDataContract(identifier) ?: return null
 
                 val contract = platform.dpp.dataContract.createFromSerialized(rawContract.toByteArray())

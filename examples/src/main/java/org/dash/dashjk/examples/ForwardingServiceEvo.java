@@ -17,20 +17,18 @@
 
 package org.dash.dashjk.examples;
 
-import com.google.common.io.BaseEncoding;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.MoreExecutors;
 import org.bitcoinj.core.Address;
-import org.bitcoinj.core.Base58;
 import org.bitcoinj.core.Coin;
 import org.bitcoinj.core.Context;
 import org.bitcoinj.core.ECKey;
 import org.bitcoinj.core.InsufficientMoneyException;
-import org.bitcoinj.core.KeyId;
 import org.bitcoinj.core.NetworkParameters;
 import org.bitcoinj.core.Transaction;
 import org.bitcoinj.core.TransactionConfidence;
+import org.bitcoinj.crypto.DeterministicKey;
 import org.bitcoinj.crypto.KeyCrypterException;
 import org.bitcoinj.evolution.CreditFundingTransaction;
 import org.bitcoinj.kits.WalletAppKit;
@@ -48,29 +46,19 @@ import org.bitcoinj.wallet.SendRequest;
 import org.bitcoinj.wallet.Wallet;
 import org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener;
 import org.dash.dashjk.dashpay.BlockchainIdentity;
+import org.dash.dashjk.dashpay.callback.RegisterIdentityCallback;
 import org.dash.dashjk.platform.Platform;
-import org.dashevo.dapiclient.DapiClient;
-import org.dashevo.dapiclient.SingleMasternode;
 import org.dashevo.dapiclient.model.DocumentQuery;
-import org.dashevo.dpp.DashPlatformProtocol;
 import org.dashevo.dpp.DataProvider;
-import org.dashevo.dpp.Factory;
 import org.dashevo.dpp.contract.Contract;
 import org.dashevo.dpp.document.Document;
 import org.dashevo.dpp.identity.Identity;
-import org.dashevo.dpp.identity.IdentityCreateTransition;
-import org.dashevo.dpp.identity.IdentityPublicKey;
-import org.dashevo.dpp.util.Cbor;
-import org.dashj.bls.Utils;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.Thread.sleep;
@@ -254,6 +242,21 @@ public class ForwardingServiceEvo {
                 }
             }
             BlockchainIdentity blockchainIdentity = new BlockchainIdentity(Identity.IdentityType.USER, tx, kit.wallet());
+
+            blockchainIdentity.monitorForBlockchainIdentityWithRetryCount(1, 1000, BlockchainIdentity.RetryDelayType.LINEAR,
+                    new RegisterIdentityCallback() {
+                        @Override
+                        public void onComplete(@NotNull String uniqueId) {
+                            System.out.println("Identity created and found");
+                        }
+
+                        @Override
+                        public void onTimeout() {
+                            System.out.println("Identity was not created:");
+                        }
+                    }
+            );
+
             System.out.println("blockchainIdentity: " + blockchainIdentity.getUniqueIdString());
         }
 
@@ -281,6 +284,7 @@ public class ForwardingServiceEvo {
     }
 
     static CreditFundingTransaction lastTx = null;
+    static BlockchainIdentity lastBlockchainIdentity = null;
 
     private static void forwardCoins(Transaction tx) {
         try {
@@ -302,15 +306,21 @@ public class ForwardingServiceEvo {
                 }
             }, MoreExecutors.directExecutor());
 
-            System.out.println("Creating identity");
+        } catch (KeyCrypterException | InsufficientMoneyException /*| InterruptedException*/ e) {
+            // We don't use encrypted wallets in this example - can never happen.
+            throw new RuntimeException(e);
+        }
+    }
 
-            //this is a base64 id, which is not used by dapi-client
-            lastIdentityId = platform.getIdentities().register(Identity.IdentityType.USER, lastTx);
-            System.out.println("Identity created: " + lastIdentityId);
-            //this is the base58 id
-            lastIdentityId = lastTx.getCreditBurnIdentityIdentifier().toStringBase58();
+    private static void registerIdentity() {
+        //this is a base64 id, which is not used by dapi-client
+        //lastIdentityId = platform.getIdentities().register(Identity.IdentityType.USER, lastTx);
+        lastBlockchainIdentity.registerIdentity();
+        //System.out.println("Identity created: " + lastIdentityId);
+        //this is the base58 id
+        lastIdentityId = lastTx.getCreditBurnIdentityIdentifier().toStringBase58();
 
-            System.out.println("Identity created: " + lastTx.getCreditBurnIdentityIdentifier().toStringBase58());
+        System.out.println("Identity created: " + lastTx.getCreditBurnIdentityIdentifier().toStringBase58());
             /*DashPlatformProtocol dpp = new DashPlatformProtocol(dataProvider);
 
             kit.wallet().getBlockchainIdentityFundingKeyChain().getKeyByPubKeyHash(lastTx.getCreditBurnPublicKeyId().getBytes());
@@ -331,13 +341,22 @@ public class ForwardingServiceEvo {
             lastIdentityId = lastTx.getCreditBurnIdentityIdentifier().toStringBase58();
             System.out.println("Identity created: " + lastIdentityId);
 */
-            sleep(30*1000);
-            blockchainUser(lastTx);
+        //sleep(30*1000);
+        lastBlockchainIdentity.monitorForBlockchainIdentityWithRetryCount(1, 1000, BlockchainIdentity.RetryDelayType.LINEAR,
+                new RegisterIdentityCallback() {
+                    @Override
+                    public void onComplete(@NotNull String uniqueId) {
+                        System.out.println("Identity created and found");
+                        blockchainUser(lastTx);
+                    }
 
-        } catch (KeyCrypterException | InsufficientMoneyException | InterruptedException e) {
-            // We don't use encrypted wallets in this example - can never happen.
-            throw new RuntimeException(e);
-        }
+                    @Override
+                    public void onTimeout() {
+                        System.out.println("Identity was not created or found.");
+                    }
+                }
+        );
+        //lastBlockchainIdentity.monitorForBlockchainIdentityWithRetryCount(30, 5000, BlockchainIdentity.RetryDelayType.LINEAR);
     }
 
     static Identity lastIdentity = null;
@@ -351,9 +370,10 @@ public class ForwardingServiceEvo {
                 return;
 
             AuthenticationKeyChain blockchainIdentityFunding = kit.wallet().getBlockchainIdentityFundingKeyChain();
-            ECKey publicKey = blockchainIdentityFunding.freshAuthenticationKey();
+            DeterministicKey publicKey = blockchainIdentityFunding.freshAuthenticationKey();
             Coin fundingAmount = Coin.valueOf(40000);
             SendRequest sendRequest = SendRequest.creditFundingTransaction(kit.params(), publicKey, fundingAmount);
+            ((CreditFundingTransaction)(sendRequest.tx)).setCreditBurnPublicKeyAndIndex(publicKey, publicKey.getChildNumber().num());
             Wallet.SendResult sendResult = kit.wallet().sendCoins(sendRequest);
             System.out.println("Sending Credit Funding Transaction...");
             sendResult.broadcastComplete.addListener(new Runnable() {
@@ -368,6 +388,10 @@ public class ForwardingServiceEvo {
             }, MoreExecutors.directExecutor());
 
             lastTx = (CreditFundingTransaction)sendResult.tx;
+            lastBlockchainIdentity = new BlockchainIdentity(Identity.IdentityType.USER, lastTx, kit.wallet());
+
+            System.out.println("Creating identity");
+            registerIdentity();
 
         } catch (KeyCrypterException | InsufficientMoneyException e) {
             // We don't use encrypted wallets in this example - can never happen.
@@ -394,12 +418,25 @@ public class ForwardingServiceEvo {
 
             String name = "hashengineering-"+ new Random().nextInt();
             System.out.println("Registering name:" + name + " for identity: " + identity.getId());
-            platform.getNames().register2(name, identity,
-                    kit.wallet().getBlockchainIdentityFundingKeyChain().currentAuthenticationKey());
+            //platform.getNames().register2(name, identity,
+            //        kit.wallet().getBlockchainIdentityFundingKeyChain().currentAuthenticationKey());
 
+            lastBlockchainIdentity.addUsername(name + "-" + 1, true);
+            lastBlockchainIdentity.addUsername(name + "-" + 2, true);
+            lastBlockchainIdentity.addUsername(name + "-" + 3, true);
 
-            Document nameDocument = platform.getNames().get(name);
-            System.out.println("name: " + nameDocument.getData().get("normalizedLabel") +"->" + nameDocument.toJSON());
+            Set<String> set = lastBlockchainIdentity.getUnregisteredUsernames();
+            lastBlockchainIdentity.registerPreorderedSaltedDomainHashesForUsernames(set);
+            try {Thread.sleep(10000); } catch (InterruptedException x) {}
+            lastBlockchainIdentity.registerUsernameDomainsForUsernames(set);
+
+            for(String s : set) {
+                Document nameDocument = platform.getNames().get(s);
+                System.out.println("name: " + nameDocument.getData().get("normalizedLabel") +"->" + nameDocument.toJSON());
+            }
+
+            //Document nameDocument = platform.getNames().get(name);
+            //System.out.println("name: " + nameDocument.getData().get("normalizedLabel") +"->" + nameDocument.toJSON());
 
         } catch (KeyCrypterException e) {
             // We don't use encrypted wallets in this example - can never happen.

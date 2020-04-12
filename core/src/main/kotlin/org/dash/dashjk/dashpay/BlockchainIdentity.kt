@@ -10,16 +10,25 @@ import org.bitcoinj.evolution.CreditFundingTransaction
 import org.bitcoinj.wallet.DerivationPathFactory
 import org.bitcoinj.wallet.SendRequest
 import org.bitcoinj.wallet.Wallet
+import org.dash.dashjk.dashpay.callback.RegisterIdentityCallback
+import org.dash.dashjk.dashpay.callback.RegisterPreorderCallback
 import org.dash.dashjk.platform.Platform
+import org.dashevo.dapiclient.model.DocumentQuery
 import org.dashevo.dpp.document.Document
 import org.dashevo.dpp.document.DocumentsStateTransition
 import org.dashevo.dpp.identity.Identity
 import org.dashevo.dpp.identity.IdentityPublicKey
 import org.dashevo.dpp.statetransition.StateTransition
+import org.dashevo.dpp.toBase64
 import org.dashevo.dpp.toHexString
 import org.dashevo.dpp.util.Cbor
 import org.dashevo.dpp.util.Entropy
 import org.slf4j.LoggerFactory
+import java.util.*
+import kotlin.collections.ArrayList
+import kotlin.collections.HashMap
+import kotlin.collections.HashSet
+import kotlin.concurrent.timerTask
 
 class BlockchainIdentity {
 
@@ -79,7 +88,7 @@ class BlockchainIdentity {
     val uniqueIdData: ByteArray
         get() = uniqueId.bytes
 
-    lateinit var identity: Identity
+    var identity: Identity? = null
 
     /** This is if the blockchain identity is present in wallets or not. If this is false then the blockchain identity is known for example from being a dashpay friend. */
     var isLocal: Boolean = false
@@ -92,7 +101,7 @@ class BlockchainIdentity {
 
     var index: Int = 0
 
-    lateinit var usernames: List<String>
+    //lateinit var usernames: List<String>
 
     var currentUsername: String? = null
 
@@ -167,12 +176,21 @@ class BlockchainIdentity {
         Preconditions.checkArgument(!transaction.creditBurnPublicKey.isPubKeyOnly)
         creditFundingTransaction = transaction
         registrationFundingPrivateKey = transaction.creditBurnPublicKey
+
+        //see if the identity is registered.
+        try {
+            if (platform.identities.get(uniqueIdString) != null)
+                registrationStatus = RegistrationStatus.REGISTERED
+            else registrationStatus = RegistrationStatus.NOT_REGISTERED
+        } catch (x: Exception) {
+            //swallow and leave the status as unknown
+        }
     }
 
     constructor(type: Identity.IdentityType, transaction: CreditFundingTransaction, usernameStatus: MutableMap<String, Any>, wallet: Wallet) :
         this(type, transaction, wallet)
     {
-        if (usernames.isNotEmpty()) {
+        if (getUsernames().isNotEmpty()) {
             val usernameSalts = HashMap<String, ByteArray>()
             for (username in usernameStatus.keys) {
                 val data = usernameStatus[username] as MutableMap<String, Any?>
@@ -187,7 +205,7 @@ class BlockchainIdentity {
     }
 
     private fun copyMap(map: MutableMap<String, Any>): MutableMap<String, Any?> {
-        return Cbor.decode(Cbor.encode(usernames))
+        return Cbor.decode(Cbor.encode(getUsernames()))
     }
 
     constructor(type: Identity.IdentityType, index: Int, transaction: CreditFundingTransaction, usernameStatus: MutableMap<String, Any>, credits: Coin, registrationStatus: RegistrationStatus, wallet: Wallet):
@@ -525,7 +543,7 @@ class BlockchainIdentity {
     }
 */
 //Preorder stage
-    fun registerPreorderedSaltedDomainHashesForUsernames(usernames: Set<String>) {
+    fun registerPreorderedSaltedDomainHashesForUsernames(usernames: List<String>) {
         val transition = preorderTransitionForUnregisteredUsernames(usernames)
         if (transition == null) {
             return;
@@ -545,7 +563,7 @@ class BlockchainIdentity {
         saveUsernames(usernames, UsernameStatus.PREORDER_REGISTRATION_PENDING)
     }
 
-    fun registerUsernameDomainsForUsernames(usernames: Set<String>) {
+    fun registerUsernameDomainsForUsernames(usernames: List<String>) {
         val transition = domainTransitionForUnregisteredUsernames(usernames)
         if (transition == null) {
             return;
@@ -562,7 +580,7 @@ class BlockchainIdentity {
             usernameStatusDictionary[BLOCKCHAIN_USERNAME_STATUS] = UsernameStatus.REGISTRATION_PENDING
             usernameStatuses[string] = usernameStatusDictionary
         }
-        saveUsernames(usernames, BlockchainIdentity.UsernameStatus.PREORDER_REGISTRATION_PENDING)
+        saveUsernames(usernames, BlockchainIdentity.UsernameStatus.REGISTRATION_PENDING)
 
     }
     //
@@ -583,7 +601,7 @@ class BlockchainIdentity {
         return salt;
     }
 
-    fun saltedDomainHashesForUsernames(usernames: Set<String>): MutableMap<String, ByteArray> {
+    fun saltedDomainHashesForUsernames(usernames: List<String>): MutableMap<String, ByteArray> {
         val mSaltedDomainHashes = HashMap<String, ByteArray>()
         for (unregisteredUsername in usernames) {
             val salt = saltForUsername(unregisteredUsername, true)
@@ -596,19 +614,19 @@ class BlockchainIdentity {
 
     // MARK: Documents
 
-    fun preorderDocumentsForUnregisteredUsernames(unregisteredUsernames: Set<String>): List<Document> {
+    fun preorderDocumentsForUnregisteredUsernames(unregisteredUsernames: List<String>): List<Document> {
         val usernamePreorderDocuments = ArrayList<Document>()
         for (saltedDomainHash in saltedDomainHashesForUsernames(unregisteredUsernames).values) {
-            val document = platform.names.createPreorderDocument(Sha256Hash.wrap(saltedDomainHash), identity)
+            val document = platform.names.createPreorderDocument(Sha256Hash.wrap(saltedDomainHash), identity!!)
             usernamePreorderDocuments.add(document)
         }
         return usernamePreorderDocuments;
     }
 
-    fun domainDocumentsForUnregisteredUsernames(unregisteredUsernames: Set<String>): List<Document> {
+    fun domainDocumentsForUnregisteredUsernames(unregisteredUsernames: List<String>): List<Document> {
         val usernameDomainDocuments = ArrayList<Document>()
         for (username in saltedDomainHashesForUsernames(unregisteredUsernames).keys) {
-            val document = platform.names.createDomainDocument(identity, username, usernameSalts[username]!!.toHexString())
+            val document = platform.names.createDomainDocument(identity!!, username, usernameSalts[username]!!.toHexString())
             usernameDomainDocuments.add(document)
         }
         return usernameDomainDocuments
@@ -616,13 +634,13 @@ class BlockchainIdentity {
 
     // MARK: Transitions
 
-    fun preorderTransitionForUnregisteredUsernames(unregisteredUsernames: Set<String>): DocumentsStateTransition? {
+    fun preorderTransitionForUnregisteredUsernames(unregisteredUsernames: List<String>): DocumentsStateTransition? {
         val usernamePreorderDocuments = preorderDocumentsForUnregisteredUsernames(unregisteredUsernames)
         if (usernamePreorderDocuments.isEmpty()) return null
         return platform.dpp.document.createStateTransition(usernamePreorderDocuments);
     }
 
-    fun domainTransitionForUnregisteredUsernames(unregisteredUsernames: Set<String>): DocumentsStateTransition? {
+    fun domainTransitionForUnregisteredUsernames(unregisteredUsernames: List<String>): DocumentsStateTransition? {
         val usernamePreorderDocuments = domainDocumentsForUnregisteredUsernames(unregisteredUsernames)
         if (usernamePreorderDocuments.isEmpty()) return null
         return platform.dpp.document.createStateTransition(usernamePreorderDocuments);
@@ -655,27 +673,27 @@ class BlockchainIdentity {
         } else UsernameStatus.NOT_PRESENT
     }
 
-    fun getUsernames() : MutableSet<String> {
-        return usernameStatuses.keys
+    fun getUsernames() : List<String> {
+        return usernameStatuses.keys.toList()
     }
 
-    fun getUsernamesWithStatus(usernameStatus: UsernameStatus): MutableSet<String> {
-        val usernames = HashSet<String>()
+    fun getUsernamesWithStatus(usernameStatus: UsernameStatus): MutableList<String> {
+        val usernames = ArrayList<String>()
         for (username in usernameStatuses.keys) {
             val usernameInfo = usernameStatuses[username] as MutableMap<String, Any?>
-            val status = usernameInfo[BLOCKCHAIN_USERNAME_STATUS] as Int
-            if (status == usernameStatus.value) {
+            val status = usernameInfo[BLOCKCHAIN_USERNAME_STATUS] as UsernameStatus
+            if (status == usernameStatus) {
                 usernames.add(username)
             }
         }
         return usernames
     }
 
-    fun getUnregisteredUsernames(): MutableSet<String> {
+    fun getUnregisteredUsernames(): MutableList<String> {
         return getUsernamesWithStatus(UsernameStatus.INITIAL)
     }
 
-    fun preorderedUsernames(): MutableSet<String> {
+    fun preorderedUsernames(): MutableList<String> {
         return getUsernamesWithStatus(UsernameStatus.PREORDERED)
     }
 
@@ -686,7 +704,7 @@ class BlockchainIdentity {
         val privateKey = privateKeyAtIndex(keyIndex, signingAlgorithm)
         Preconditions.checkState(privateKey != null, "The private key should exist");
 
-        val identityPublicKey = IdentityPublicKey(keyIndex + 1, signingAlgorithm, privateKey!!.publicKeyAsHex, true)
+        val identityPublicKey = IdentityPublicKey(keyIndex + 1, signingAlgorithm, privateKey!!.pubKey.toBase64(), true)
         transition.sign(identityPublicKey, privateKey!!.privateKeyAsHex)
     }
 
@@ -695,7 +713,7 @@ class BlockchainIdentity {
             uint32_t index
             [self createNewKeyOfType:DEFAULT_SIGNING_ALGORITH returnIndex:&index];
         }*/
-        return signStateTransition(transition, currentMainKeyIndex, currentMainKeyType)
+        return signStateTransition(transition, identity!!.publicKeys[0].id-1/* currentMainKeyIndex*/, currentMainKeyType)
     }
 
     fun derivationPathForType(type:IdentityPublicKey.TYPES): ImmutableList<ChildNumber>? {
@@ -712,13 +730,14 @@ class BlockchainIdentity {
     private fun privateKeyAtIndex(index: Int, type: IdentityPublicKey.TYPES): ECKey? {
         if (isLocal) {
 
-            val derivationPath = ImmutableList.of(derivationPathForType(type), ChildNumber(index, false))
+            //val derivationPath = ImmutableList.of(derivationPathForType(type), ChildNumber(index, false))
 
-            val authenticationChain = wallet!!.blockchainIdentityKeyChain
+            //val authenticationChain = wallet!!.blockchainIdentityKeyChain
+            //val authenticationChain = wallet!!.blockchainIdentityFundingKeyChain
 
-            val key = authenticationChain.getKey(index)
+            //val key = authenticationChain.getKey(index - 1)
 
-            return key
+            return registrationFundingPrivateKey //key
         } else return null
     }
 /*
@@ -747,7 +766,7 @@ class BlockchainIdentity {
              - usernameStatuses
              - DashPay stuff...
          */
-        TODO()
+        //TODO()
     }
 
 
@@ -756,7 +775,7 @@ class BlockchainIdentity {
         // send notifications for the items that were updated
     }
 
-    fun saveUsernames(usernames:Set<String>, status: UsernameStatus) {
+    fun saveUsernames(usernames:List<String>, status: UsernameStatus) {
         for (username in usernames) {
             saveUsername(username, status, null, false)
         }
@@ -771,11 +790,161 @@ class BlockchainIdentity {
 
     fun saveUsername(username: String, status: UsernameStatus, salt: ByteArray?, commitSave: Boolean) {
         // save the username information to the Room database
-        TODO()
+        //TODO()
     }
 
     fun saveNewUsername(username: String, status: UsernameStatus) {
         val salt = saltForUsername(username, false)
         saveUsername(username, status, salt, true)
     }
+
+    enum class RetryDelayType {
+        LINEAR,
+        SLOW20,
+        SLOW50
+    }
+
+
+
+    //should this have a callback or let the client handle the end
+    fun monitorForBlockchainIdentityWithRetryCount(retryCount: Int, delayMillis: Long, retryDelayType: RetryDelayType, callback: RegisterIdentityCallback) {
+
+        val identityResult = platform.identities.get(uniqueIdString)
+
+        if (identityResult != null) {
+            identity = identityResult
+            registrationStatus = RegistrationStatus.REGISTERED
+            save()
+            callback.onComplete(uniqueIdString)
+        } else {
+            if (retryCount > 0) {
+                Timer("monitorBlockchainIdentityStatus", false).schedule(timerTask {
+                    val nextDelay = delayMillis * when (retryDelayType) {
+                        RetryDelayType.SLOW20 -> 5 / 4
+                        RetryDelayType.SLOW50 -> 3 / 2
+                        else -> 1
+                    }
+                    monitorForBlockchainIdentityWithRetryCount(retryCount - 1, nextDelay, retryDelayType, callback)
+                }, delayMillis)
+            } else callback.onTimeout()
+        }
+        //throw exception or return false
+    }
+
+    //should this have a callback or let the client handle the end
+    fun monitorForDPNSPreorderSaltedDomainHashes(saltedDomainHashes: Map<String, ByteArray>,
+                                                 retryCount: Int,
+                                                 delayMillis: Long,
+                                                 retryDelayType: RetryDelayType,
+                                                 callback: RegisterPreorderCallback) {
+
+        val query = DocumentQuery.Builder().where(listOf("saltedDomainHash","IN",saltedDomainHashes.map {"5620${it.value.toHexString()}"})).build()
+        val preorderDocuments = platform.documents.get("dpns.preorder", query)
+
+        if (preorderDocuments != null && preorderDocuments.isNotEmpty()) {
+                val usernamesLeft = HashMap(saltedDomainHashes)
+                for (username in saltedDomainHashes.keys) {
+                    val saltedDomainHashData = saltedDomainHashes[username] as ByteArray
+                    val saltedDomainHashString = "5620${saltedDomainHashData.toHexString()}"
+                    for (preorderDocument in preorderDocuments) {
+                        if (preorderDocument.data["saltedDomainHash"] == saltedDomainHashString) {
+                            var usernameStatus = usernameStatuses["username"] as MutableMap<String, Any>
+                            if (usernameStatus == null)
+                                usernameStatus = HashMap()
+                            usernameStatus[BLOCKCHAIN_USERNAME_STATUS] = UsernameStatus.PREORDERED
+                            usernameStatuses[username] = usernameStatus
+                            saveUsername(username, UsernameStatus.PREORDERED, null, true)
+                            usernamesLeft.remove(username)
+                        }
+                    }
+                }
+                if (usernamesLeft.size > 0 && retryCount > 0) {
+                    val saltedDomainHashesLeft = saltedDomainHashes.filter { usernamesLeft.containsKey(it.key) }
+                    Timer("monitorBlockchainIdentityStatus", false).schedule(timerTask {
+                        val nextDelay = delayMillis * when (retryDelayType) {
+                            RetryDelayType.SLOW20 -> 5 / 4
+                            RetryDelayType.SLOW50 -> 3 / 2
+                            else -> 1
+                        }
+                        monitorForDPNSPreorderSaltedDomainHashes(saltedDomainHashesLeft,retryCount - 1, nextDelay, retryDelayType, callback)
+                    }, delayMillis)
+                } else if (usernamesLeft.size > 0) {
+                    val saltedDomainHashesLeft = saltedDomainHashes.filter { usernamesLeft.containsKey(it.key) }
+                    callback.onTimeout(saltedDomainHashesLeft.keys.toList())
+                } else {
+                    callback.onComplete(saltedDomainHashes.keys.toList())
+                }
+        } else {
+            if (retryCount > 0) {
+                Timer("monitorForDPNSPreorderSaltedDomainHashes", false).schedule(timerTask {
+                    val nextDelay = delayMillis * when (retryDelayType) {
+                        RetryDelayType.SLOW20 -> 5 / 4
+                        RetryDelayType.SLOW50 -> 3 / 2
+                        else -> 1
+                    }
+                    monitorForDPNSPreorderSaltedDomainHashes(saltedDomainHashes, retryCount - 1, nextDelay, retryDelayType, callback)
+                }, delayMillis)
+            } else {
+                callback.onTimeout(saltedDomainHashes.keys.toList())
+            }
+        }
+        //throw exception or return false
+    }
+
+    fun monitorForDPNSUsernames(usernames: List<String>,
+                                retryCount: Int,
+                                delayMillis: Long,
+                                retryDelayType: RetryDelayType,
+                                callback: RegisterPreorderCallback) {
+
+        val query = DocumentQuery.Builder().where(listOf("normalizedLabel","IN",usernames.map {"${it.toLowerCase()}"})).build()
+        val nameDocuments = platform.documents.get("dpns.domain", query)
+
+        if (nameDocuments != null && nameDocuments.isNotEmpty()) {
+            val usernamesLeft = ArrayList(usernames)
+            for (username in usernames) {
+                val normalizedName = username.toLowerCase()
+                for (nameDocument in nameDocuments) {
+                    if (nameDocument.data["normalizedLabel"] == normalizedName) {
+                        var usernameStatus = usernameStatuses["username"] as MutableMap<String, Any>
+                        if (usernameStatus == null)
+                            usernameStatus = HashMap()
+                        usernameStatus[BLOCKCHAIN_USERNAME_STATUS] = UsernameStatus.CONFIRMED
+                        usernameStatuses[username] = usernameStatus
+                        saveUsername(username, UsernameStatus.CONFIRMED, null, true)
+                        usernamesLeft.remove(username)
+                    }
+                }
+            }
+            if (usernamesLeft.size > 0 && retryCount > 0) {
+                Timer("monitorForDPNSUsernames", false).schedule(timerTask {
+                    val nextDelay = delayMillis * when (retryDelayType) {
+                        RetryDelayType.SLOW20 -> 5 / 4
+                        RetryDelayType.SLOW50 -> 3 / 2
+                        else -> 1
+                    }
+                    monitorForDPNSUsernames(usernamesLeft,retryCount - 1, nextDelay, retryDelayType, callback)
+                }, delayMillis)
+            } else if (usernamesLeft.size > 0) {
+                callback.onTimeout(usernamesLeft)
+            } else {
+                callback.onComplete(usernames)
+            }
+        } else {
+            if (retryCount > 0) {
+                Timer("monitorBlockchainIdentityStatus", false).schedule(timerTask {
+                    val nextDelay = delayMillis * when (retryDelayType) {
+                        RetryDelayType.SLOW20 -> 5 / 4
+                        RetryDelayType.SLOW50 -> 3 / 2
+                        else -> 1
+                    }
+                    monitorForDPNSUsernames(usernames, retryCount - 1, nextDelay, retryDelayType, callback)
+                }, delayMillis)
+            } else {
+                callback.onTimeout(usernames)
+            }
+        }
+        //throw exception or return false
+    }
+
 }
