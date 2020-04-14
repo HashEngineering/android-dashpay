@@ -11,6 +11,7 @@ import org.bitcoinj.wallet.DerivationPathFactory
 import org.bitcoinj.wallet.SendRequest
 import org.bitcoinj.wallet.Wallet
 import org.dash.dashjk.dashpay.callback.RegisterIdentityCallback
+import org.dash.dashjk.dashpay.callback.RegisterNameCallback
 import org.dash.dashjk.dashpay.callback.RegisterPreorderCallback
 import org.dash.dashjk.platform.Platform
 import org.dashevo.dapiclient.model.DocumentQuery
@@ -205,7 +206,7 @@ class BlockchainIdentity {
     }
 
     private fun copyMap(map: MutableMap<String, Any>): MutableMap<String, Any?> {
-        return Cbor.decode(Cbor.encode(getUsernames()))
+        return Cbor.decode(Cbor.encode(map))
     }
 
     constructor(type: Identity.IdentityType, index: Int, transaction: CreditFundingTransaction, usernameStatus: MutableMap<String, Any>, credits: Coin, registrationStatus: RegistrationStatus, wallet: Wallet):
@@ -838,7 +839,7 @@ class BlockchainIdentity {
                                                  retryDelayType: RetryDelayType,
                                                  callback: RegisterPreorderCallback) {
 
-        val query = DocumentQuery.Builder().where(listOf("saltedDomainHash","IN",saltedDomainHashes.map {"5620${it.value.toHexString()}"})).build()
+        val query = DocumentQuery.Builder().where(listOf("saltedDomainHash","in",saltedDomainHashes.map {"5620${it.value.toHexString()}"})).build()
         val preorderDocuments = platform.documents.get("dpns.preorder", query)
 
         if (preorderDocuments != null && preorderDocuments.isNotEmpty()) {
@@ -848,9 +849,9 @@ class BlockchainIdentity {
                     val saltedDomainHashString = "5620${saltedDomainHashData.toHexString()}"
                     for (preorderDocument in preorderDocuments) {
                         if (preorderDocument.data["saltedDomainHash"] == saltedDomainHashString) {
-                            var usernameStatus = usernameStatuses["username"] as MutableMap<String, Any>
-                            if (usernameStatus == null)
-                                usernameStatus = HashMap()
+                            var usernameStatus = if (usernameStatuses.containsKey(username))
+                                usernameStatuses[username] as MutableMap<String, Any>
+                            else HashMap()
                             usernameStatus[BLOCKCHAIN_USERNAME_STATUS] = UsernameStatus.PREORDERED
                             usernameStatuses[username] = usernameStatus
                             saveUsername(username, UsernameStatus.PREORDERED, null, true)
@@ -895,9 +896,12 @@ class BlockchainIdentity {
                                 retryCount: Int,
                                 delayMillis: Long,
                                 retryDelayType: RetryDelayType,
-                                callback: RegisterPreorderCallback) {
+                                callback: RegisterNameCallback
+    ) {
 
-        val query = DocumentQuery.Builder().where(listOf("normalizedLabel","IN",usernames.map {"${it.toLowerCase()}"})).build()
+        val query = DocumentQuery.Builder()
+            .where("normalizedParentDomainName", "==", "dash")
+            .where(listOf("normalizedLabel","in",usernames.map {"${it.toLowerCase()}"})).build()
         val nameDocuments = platform.documents.get("dpns.domain", query)
 
         if (nameDocuments != null && nameDocuments.isNotEmpty()) {
@@ -906,9 +910,9 @@ class BlockchainIdentity {
                 val normalizedName = username.toLowerCase()
                 for (nameDocument in nameDocuments) {
                     if (nameDocument.data["normalizedLabel"] == normalizedName) {
-                        var usernameStatus = usernameStatuses["username"] as MutableMap<String, Any>
-                        if (usernameStatus == null)
-                            usernameStatus = HashMap()
+                        var usernameStatus = if (usernameStatuses.containsKey(username))
+                            usernameStatuses[username] as MutableMap<String, Any>
+                        else HashMap()
                         usernameStatus[BLOCKCHAIN_USERNAME_STATUS] = UsernameStatus.CONFIRMED
                         usernameStatuses[username] = usernameStatus
                         saveUsername(username, UsernameStatus.CONFIRMED, null, true)

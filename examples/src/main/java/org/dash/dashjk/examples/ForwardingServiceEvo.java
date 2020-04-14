@@ -17,6 +17,7 @@
 
 package org.dash.dashjk.examples;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -47,6 +48,8 @@ import org.bitcoinj.wallet.Wallet;
 import org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener;
 import org.dash.dashjk.dashpay.BlockchainIdentity;
 import org.dash.dashjk.dashpay.callback.RegisterIdentityCallback;
+import org.dash.dashjk.dashpay.callback.RegisterNameCallback;
+import org.dash.dashjk.dashpay.callback.RegisterPreorderCallback;
 import org.dash.dashjk.platform.Platform;
 import org.dashevo.dapiclient.model.DocumentQuery;
 import org.dashevo.dpp.DataProvider;
@@ -231,7 +234,7 @@ public class ForwardingServiceEvo {
                 System.out.println("  id json: " + identity.toJSON().toString());
                 try {
                     DocumentQuery options = new DocumentQuery.Builder().where(Arrays.asList("$userId", "==", identityId)).build();
-                    List<Document> documents = platform.getDocuments().get("domain", options);
+                    List<Document> documents = platform.getDocuments().get("dpns.domain", options);
                     if (documents != null & documents.size() > 0) {
                         System.out.println("  name: " + documents.get(0).getData().get("normalizedName"));
                     } else {
@@ -243,16 +246,18 @@ public class ForwardingServiceEvo {
             }
             BlockchainIdentity blockchainIdentity = new BlockchainIdentity(Identity.IdentityType.USER, tx, kit.wallet());
 
-            blockchainIdentity.monitorForBlockchainIdentityWithRetryCount(1, 1000, BlockchainIdentity.RetryDelayType.LINEAR,
-                    new RegisterIdentityCallback() {
+            List<String> names = ImmutableList.of("test1", "test2");
+
+            blockchainIdentity.monitorForDPNSUsernames(names, 10, 1000, BlockchainIdentity.RetryDelayType.LINEAR,
+                    new RegisterNameCallback() {
                         @Override
-                        public void onComplete(@NotNull String uniqueId) {
-                            System.out.println("Identity created and found");
+                        public void onComplete(@NotNull List<String> uniqueId) {
+                            System.out.println("names created and found");
                         }
 
                         @Override
-                        public void onTimeout() {
-                            System.out.println("Identity was not created:");
+                        public void onTimeout(@NotNull List<String> uniqueId) {
+                            System.out.println("names were not created:");
                         }
                     }
             );
@@ -425,10 +430,33 @@ public class ForwardingServiceEvo {
             lastBlockchainIdentity.addUsername(name + "-" + 2, true);
             lastBlockchainIdentity.addUsername(name + "-" + 3, true);
 
-            Set<String> set = lastBlockchainIdentity.getUnregisteredUsernames();
+            List<String> set = lastBlockchainIdentity.getUnregisteredUsernames();
             lastBlockchainIdentity.registerPreorderedSaltedDomainHashesForUsernames(set);
-            try {Thread.sleep(10000); } catch (InterruptedException x) {}
-            lastBlockchainIdentity.registerUsernameDomainsForUsernames(set);
+
+            Map<String, byte[]> saltedDomainHashes = lastBlockchainIdentity.saltedDomainHashesForUsernames(set);
+            lastBlockchainIdentity.monitorForDPNSPreorderSaltedDomainHashes(saltedDomainHashes, 10, 1000, BlockchainIdentity.RetryDelayType.LINEAR, new RegisterPreorderCallback() {
+                @Override
+                public void onComplete(@NotNull List<String> names) {
+                    lastBlockchainIdentity.registerUsernameDomainsForUsernames(set);
+                    lastBlockchainIdentity.monitorForDPNSUsernames(set, 10, 1000, BlockchainIdentity.RetryDelayType.LINEAR, new RegisterNameCallback() {
+                        @Override
+                        public void onComplete(@NotNull List<String> names) {
+                            System.out.println("Name Register Complete: " + names);
+                        }
+
+                        @Override
+                        public void onTimeout(@NotNull List<String> incompleteNames) {
+                            System.out.println("Name Register Timeout: " + names);
+                        }
+                    });
+                }
+
+                @Override
+                public void onTimeout(@NotNull List<String> incompleteNames) {
+
+                }
+            });
+            //try {Thread.sleep(10000); } catch (InterruptedException x) {}
 
             for(String s : set) {
                 Document nameDocument = platform.getNames().get(s);

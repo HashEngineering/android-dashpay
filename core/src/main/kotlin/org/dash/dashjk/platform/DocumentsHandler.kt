@@ -66,8 +66,7 @@ class DocumentsHandler(val platform: Platform) {
             throw Exception("Missing contract ID for $appName")
         }
         val contractId = app.contractId;
-        try{
-            // @ts-ignore
+        try {
             val rawDataList = platform.client.getDocuments(contractId, fieldType, opts);
             val documents = ArrayList<Document>()
 
