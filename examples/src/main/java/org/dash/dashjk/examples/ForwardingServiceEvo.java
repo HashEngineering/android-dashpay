@@ -421,14 +421,14 @@ public class ForwardingServiceEvo {
                 System.out.println("identity requested: " + identity.toJSON());
             else System.out.println("failed to get identity:" + lastIdentityId);
 
-            String name = "hashengineering-"+ new Random().nextInt();
+            String name = "hashengineering"+ new Random().nextInt(100);
             System.out.println("Registering name:" + name + " for identity: " + identity.getId());
             //platform.getNames().register2(name, identity,
             //        kit.wallet().getBlockchainIdentityFundingKeyChain().currentAuthenticationKey());
 
-            lastBlockchainIdentity.addUsername(name + "-" + 1, true);
-            lastBlockchainIdentity.addUsername(name + "-" + 2, true);
-            lastBlockchainIdentity.addUsername(name + "-" + 3, true);
+            lastBlockchainIdentity.addUsername(name + 1, true);
+            lastBlockchainIdentity.addUsername(name + 2, true);
+            lastBlockchainIdentity.addUsername(name + 3, true);
 
             List<String> set = lastBlockchainIdentity.getUnregisteredUsernames();
             lastBlockchainIdentity.registerPreorderedSaltedDomainHashesForUsernames(set);
