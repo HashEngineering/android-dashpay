@@ -1,7 +1,11 @@
 package org.dash.dashjk.examples
 
+import org.bitcoinj.core.Sha256Hash
 import org.dash.dashjk.Client
 import org.dash.dashjk.dashpay.BlockchainIdentity
+import org.dashevo.dapiclient.model.DocumentQuery
+import org.dashevo.dpp.toHexString
+import org.dashevo.dpp.util.HashUtils
 import org.json.JSONObject
 import java.lang.Thread.sleep
 import java.util.*
@@ -14,7 +18,7 @@ class WaitUntilRegistered {
         @JvmStatic
         fun main(args: Array<String>) {
             val nonExistantId = "GJvyvWN4M8LWQ1KW2N6ure9cYmqxcpX8CE5HojXebhTV"
-            monitorForBlockchainIdentityWithRetryCount(nonExistantId, 10, 1000, BlockchainIdentity.RetryDelayType.LINEAR,
+            /*monitorForBlockchainIdentityWithRetryCount(nonExistantId, 10, 1000, BlockchainIdentity.RetryDelayType.LINEAR,
                 object: MonitorListener {
                     override fun onComplete() {
                         println("listener called")
@@ -25,6 +29,27 @@ class WaitUntilRegistered {
                     }
                 })
             println("starting wait before finish")
+           */
+            val saltedDomainHashes = HashMap<String, ByteArray>()
+
+            saltedDomainHashes["name1"] = HashUtils.fromHex("56202b7c08fa22c63994de74d7d8b085a55354e410dd4f8a9053fecdff36fe577e4c") //Sha256Hash.twiceOf(ByteArray(32)).bytes
+            saltedDomainHashes["name2"] = HashUtils.fromHex("56204e6d046b316643f0c10d7d53eb4c3ae60fd5eaeb7347052f60b59d4a39761c65")//Sha256Hash.twiceOf(ByteArray(33)).bytes
+            saltedDomainHashes["name3"] = HashUtils.fromHex("5620a4dd64d037d0aa170a148665d841db74a69739a4b08c18c7e295788a7d35223e")//Sha256Hash.twiceOf(ByteArray(33)).bytes
+
+
+            var query = DocumentQuery.Builder()
+                .where(listOf("saltedDomainHash","in",saltedDomainHashes.map {"5620${it.value.toHexString()}"})).build()
+            val preorderDocuments = sdk.platform.documents.get("dpns.preorder", query)
+
+            val usernames = HashMap<String, Any>()
+            usernames["test1"] = Sha256Hash.of("hello".toByteArray())
+            usernames["test2"] = Sha256Hash.of("hi".toByteArray())
+
+            query = DocumentQuery.Builder()
+                .where("normalizedParentDomainName", "==", "dash")
+                .where(listOf("normalizedLabel","in",usernames.map {"${it.key.toLowerCase()}"})).build()
+            val bytes = query.encodeWhere()
+            val nameDocuments = sdk.platform.documents.get("dpns.domain", query)
             sleep(5000)
         }
 
