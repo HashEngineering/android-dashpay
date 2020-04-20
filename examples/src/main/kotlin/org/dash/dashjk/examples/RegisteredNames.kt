@@ -6,7 +6,7 @@ import org.dashevo.dpp.document.Document
 
 class RegisteredNames {
     companion object {
-        val sdk = Client("testnet")
+        val sdk = Client("mobile")
 
         @JvmStatic
         fun main(args: Array<String>) {
