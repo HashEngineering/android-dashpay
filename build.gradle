@@ -14,5 +14,5 @@ allprojects {
         jcenter()
     }
 
-    group = 'org.dash'
+    group = 'org.dashevo'
 }

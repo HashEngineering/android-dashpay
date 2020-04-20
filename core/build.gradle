@@ -1,12 +1,9 @@
 plugins {
     id 'org.jetbrains.kotlin.jvm' version '1.3.41'
-    id 'eclipse'
     id 'maven-publish'
 }
 
-eclipse.project.name = 'dashjk-core'
-
-version '1.0-SNAPSHOT'
+version '0.11-SNAPSHOT'
 
 repositories {
     mavenLocal()
@@ -16,8 +13,8 @@ repositories {
 
 dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
-    implementation "org.dashevo:dpp:1.0-SNAPSHOT"
-    implementation "org.dashevo:dapi-client:1.0-SNAPSHOT"
+    implementation "org.dashevo:dpp:0.11-SNAPSHOT"
+    implementation "org.dashevo:dapi-client:0.11-SNAPSHOT"
     implementation "org.dashj:dashj-core:0.18-SNAPSHOT"
 
     implementation 'io.grpc:grpc-okhttp:1.28.0' // CURRENT_GRPC_VERSION

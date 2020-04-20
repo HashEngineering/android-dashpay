@@ -3,10 +3,9 @@ plugins {
     id 'java'
     id 'eclipse'
 }
-eclipse.project.name = 'dashjk-examples'
 
-group 'org.dash'
-version '1.0-SNAPSHOT'
+group 'org.dashevo'
+version '0.11-SNAPSHOT'
 
 repositories {
     mavenLocal()
