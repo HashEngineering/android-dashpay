@@ -268,16 +268,9 @@ class NamesHandler (val platform: Platform) {
             .where(listOf("normalizedParentDomainName", "==", "dash"))
             .build()
 
-        /*val where = """[
-            [ "normalizedLabel", "==",  "${id.toLowerCase()}" ],
-            [ "normalizedParentDomainName", "==", "dash" ] 
-        ]""".trimIndent()
-
-        val queryOpts2 = DocumentQuery.Builder().where(where).build()
-*/
         try{
             val documents = platform.documents.get("dpns.domain", queryOpts);
-            return if(documents[0] != null && documents.size != 0) documents[0] else null;
+            return if(documents != null && documents.isNotEmpty()) documents[0] else null;
         } catch (e: Exception) {
             throw e;
         }
