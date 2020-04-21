@@ -33,10 +33,10 @@ class Platform(val params: NetworkParameters) {
 
     val dpp = DashPlatformProtocol(dataProvider)
     val apps = HashMap<String, ContractInfo>()
-    val contracts = ContractHandler(this)
-    val documents = DocumentsHandler(this)
-    val identities = IdentityHandler(this)
-    var names = NamesHandler(this)
+    val contracts = Contracts(this)
+    val documents = Documents(this)
+    val identities = Identities(this)
+    var names = Names(this)
     lateinit var client: DapiClient
 
     init {

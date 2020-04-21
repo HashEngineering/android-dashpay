@@ -13,8 +13,11 @@ import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.lang.Thread.sleep
 
-class NamesHandler (val platform: Platform) {
+class Names (val platform: Platform) {
 
+    companion object {
+        const val DEFAULT_PARENT_DOMAIN = "dash"
+    }
 
     fun register(name: String, identity: Identity, identityHDPrivateKey: ECKey): Document
     {
@@ -262,14 +265,21 @@ class NamesHandler (val platform: Platform) {
         return domainDocument
     }
 
-    fun get(id: String): Document? {
-        val queryOpts = DocumentQuery.Builder()
-            .where(listOf("normalizedLabel", "==", id.toLowerCase()))
-            .where(listOf("normalizedParentDomainName", "==", "dash"))
+    private fun getDocumentQuery(name: String, parentDomain: String = DEFAULT_PARENT_DOMAIN): DocumentQuery {
+        return DocumentQuery.Builder()
+            .where(listOf("normalizedLabel", "==", name.toLowerCase()))
+            .where(listOf("normalizedParentDomainName", "==", parentDomain))
             .build()
+    }
+
+    fun get(name: String): Document? {
+        return get(name, DEFAULT_PARENT_DOMAIN)
+    }
+
+    fun get(name: String, parentDomain: String): Document? {
 
         try{
-            val documents = platform.documents.get("dpns.domain", queryOpts);
+            val documents = platform.documents.get("dpns.domain", getDocumentQuery(name, parentDomain));
             return if(documents != null && documents.isNotEmpty()) documents[0] else null;
         } catch (e: Exception) {
             throw e;

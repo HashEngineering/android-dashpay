@@ -5,7 +5,7 @@ import org.dashevo.dpp.Factory
 import org.dashevo.dpp.document.Document
 import org.dashevo.dpp.identity.Identity
 
-class DocumentsHandler(val platform: Platform) {
+class Documents(val platform: Platform) {
     fun create(typeLocator: String, identity: Identity, opts: MutableMap<String, Any?>): Document {
         val dpp = platform.dpp
 

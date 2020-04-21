@@ -7,7 +7,7 @@ import org.dashevo.dpp.identity.IdentityPublicKey
 import org.dashevo.dpp.toBase64
 import org.dashevo.dpp.toHexString
 
-class IdentityHandler(val platform: Platform) {
+class Identities(val platform: Platform) {
 
     fun register(identityType: Identity.IdentityType = Identity.IdentityType.USER, signedLockTransaction: CreditFundingTransaction): String
     {
